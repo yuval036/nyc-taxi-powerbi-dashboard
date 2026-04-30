@@ -173,7 +173,14 @@ CREATE TABLE gold.fact_trip (
     congestion_surcharge DECIMAL(10,2),
     airport_fee DECIMAL(10,2),
     cbd_congestion_fee DECIMAL(10,2),
-    total_amount DECIMAL(10,2)
+    total_amount DECIMAL(10,2),
+
+    CONSTRAINT FK_fact_trip_pickup_datetime FOREIGN KEY(pickup_datetime_id) REFERENCES gold.dim_datetime(datetime_id),
+    CONSTRAINT FK_fact_trip_dropoff_datetime FOREIGN KEY(dropoff_datetime_id) REFERENCES gold.dim_datetime(datetime_id),
+    CONSTRAINT FK_fact_trip_pickup_location FOREIGN KEY(pickup_location_id) REFERENCES gold.dim_location(location_id),
+    CONSTRAINT FK_fact_trip_dropoff_location FOREIGN KEY(dropoff_location_id) REFERENCES gold.dim_location(location_id),
+    CONSTRAINT FK_fact_trip_payment_type FOREIGN KEY(payment_type_id) REFERENCES gold.dim_payment_type(payment_type_id),
+    CONSTRAINT FK_fact_trip_rate_code FOREIGN KEY(rete_code_id) REFERENCES gold.dim_rate_code(rate_code_id)
 );
 
 ------------------------------------------------------------------------------------------------------
