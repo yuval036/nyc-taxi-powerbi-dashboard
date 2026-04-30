@@ -145,6 +145,125 @@ WHERE NOT EXISTS (
     WHERE d.datetime_id = CAST(FORMAT(t.dt, 'yyyyMMddHHmm') AS BIGINT)
 );
 
+------------------------------------------------------------------------------------------------------
+-- 5. Load fact_trip
+------------------------------------------------------------------------------------------------------
 
+WITH dedup AS
+(
+	SELECT *,
+		ROW_NUMBER() OVER (
+			PARTITION BY trip_key
+			ORDER BY pickup_datetime, dropoff_datetime
+		) AS rn
+	FROM silver.yellow_tripdata_clean
+)
+INSERT INTO gold.fact_trip
+(
+	trip_key,
+	pickup_datetime_id,
+	dropoff_datetime_id,
+	pickup_location_id,
+	dropoff_location_id,
+	payment_type_id,
+	rate_code_id,
+	vendor_id,
+	passenger_count,
+	trip_distance,
+	fare_amount,
+	tip_amount,
+	extra,
+	mta_tax,
+	tolls_amount,
+	improvement_surcharge,
+	congestion_surcharge,
+	airport_fee,
+	cbd_congestion_fee,
+	total_amount
+)
+SELECT
+	ytc.trip_key,
+	ddp.datetime_id,
+	ddd.datetime_id,
+	dlp.location_id,
+	dld.location_id,
+	pt.payment_type_id,
+	rc.rate_code_id,
+	ytc.vendor_id,
+	ytc.passenger_count,
+	ytc.trip_distance,
+	ytc.fare_amount,
+	ytc.tip_amount,
+	ytc.extra,
+	ytc.mta_tax,
+	ytc.tolls_amount,
+	ytc.improvement_surcharge,
+	ytc.congestion_surcharge,
+	ytc.airport_fee,
+	ytc.cbd_congestion_fee,
+	ytc.total_amount
+FROM dedup ytc
+JOIN gold.dim_datetime ddp
+	ON DATEADD(MINUTE, DATEDIFF(MINUTE, 0, ytc.pickup_datetime), 0) = ddp.full_datetime
+JOIN gold.dim_datetime ddd
+	ON DATEADD(MINUTE, DATEDIFF(MINUTE, 0, ytc.dropoff_datetime), 0) = ddd.full_datetime
+JOIN gold.dim_location dlp
+	ON ytc.pickup_location_id = dlp.location_id
+JOIN gold.dim_location dld
+	ON ytc.dropoff_location_id = dld.location_id
+JOIN gold.dim_payment_type pt
+	ON ytc.payment_type = pt.payment_type_id
+JOIN gold.dim_rate_code rc
+	ON ytc.rate_code_id = rc.rate_code_id
+WHERE ytc.rn = 1
+AND NOT EXISTS (
+	SELECT 1
+	FROM gold.fact_trip f
+	WHERE f.trip_key = ytc.trip_key
+);
 
+------------------------------------------------------------------------------------------------------
+-- 6. Build Power BI summary table
+------------------------------------------------------------------------------------------------------
 
+TRUNCATE TABLE gold.fact_trip_summary;
+
+INSERT INTO gold.fact_trip_summary (
+    [year],
+    [quarter],
+    [month],
+    pickup_borough,
+    dropoff_borough,
+    payment_type,
+    total_trips,
+    total_revenue,
+    total_tip,
+    total_distance
+)
+SELECT
+    d.[year],
+    d.[quarter],
+    d.[month],
+    pl.borough AS pickup_borough,
+    dl.borough AS dropoff_borough,
+    pt.payment_type_name AS payment_type,
+    COUNT(*) AS total_trips,
+    SUM(f.total_amount) AS total_revenue,
+    SUM(f.tip_amount) AS total_tip,
+    SUM(f.trip_distance) AS total_distance
+FROM gold.fact_trip f
+JOIN gold.dim_datetime d
+    ON f.pickup_datetime_id = d.datetime_id
+JOIN gold.dim_location pl
+    ON f.pickup_location_id = pl.location_id
+JOIN gold.dim_location dl
+    ON f.dropoff_location_id = dl.location_id
+JOIN gold.dim_payment_type pt
+    ON f.payment_type_id = pt.payment_type_id
+GROUP BY
+    d.[year],
+    d.[quarter],
+    d.[month],
+    pl.borough,
+    dl.borough,
+    pt.payment_type_name;
